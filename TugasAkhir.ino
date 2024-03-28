@@ -7,15 +7,19 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char* ssid = "WAFI";
-const char* password = "jusjambu";
-const char* mqtt_server = "test.mosquitto.org";  // Misal: "mqtt.eclipse.org"
+// Pin untuk LED indikator nyala (success)
+const int ledSuccessPin = D4;
+
+
+const char* ssid = "KopiBang.id 2";
+const char* password = "bukajam8pagi";
+const char* mqtt_server = "test.mosquitto.org";
 
 const char* topicSensorData = "HydraMage/data";
 
-const float R0_NO2 = 76.63;  // Nilai resistansi pada konsentrasi NO2 = 100 ppm
-const float m_NO2 = -0.42;   // Kemiringan garis regresi
-const float b_NO2 = 37.97;   // Intersepsi garis regresi
+const float R0_NO2 = 76.63;
+const float m_NO2 = -0.42;
+const float b_NO2 = 37.97; 
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -27,6 +31,10 @@ int pm25Pin = D8;
 void setup() {
   Serial.begin(9600);
   dht.begin();
+
+  // Set pin mode untuk LED indikator
+  pinMode(ledSuccessPin, OUTPUT);
+
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
@@ -52,17 +60,17 @@ void loop() {
   Serial.print("%, NO2: ");
   Serial.print(NO2Concentration);
   Serial.print(", PM10: ");
-  Serial.print(readPMConcentration(pm10Value));
+  Serial.print(readPM10Concentration(pm10Value));
   Serial.print(", PM2.5: ");
-  Serial.println(readPMConcentration(pm25Value));
+  Serial.println(readPM25Concentration(pm25Value));
 
   // Membuat objek DynamicJsonDocument
   DynamicJsonDocument sensorData(256);
   sensorData["temperature"] = temperature;
   sensorData["humidity"] = humidity;
   sensorData["air_quality"] = NO2Concentration;
-  sensorData["pm10"] = readPMConcentration(pm10Value);
-  sensorData["pm25"] = readPMConcentration(pm25Value);
+  sensorData["pm10"] = readPM10Concentration(pm10Value);
+  sensorData["pm25"] = readPM25Concentration(pm25Value);
 
   // Mengkonversi objek JSON menjadi string
   char jsonBuffer[256];
@@ -70,6 +78,11 @@ void loop() {
 
   // Kirim data ke broker MQTT
   client.publish(topicSensorData, jsonBuffer);
+
+  // Nyalakan LED indikator saat berhasil baca sensor
+  digitalWrite(ledSuccessPin, HIGH);
+  delay(1000);
+  digitalWrite(ledSuccessPin, LOW);
 
   delay(2000);
 }
@@ -83,19 +96,53 @@ float readNO2Concentration() {
   return NO2Concentration;
 }
 
-// Function to calculate PM concentration in micrograms per cubic meter (μg/m³)
-float readPMConcentration(int rawValue) {
-  // Replace with the conversion factor obtained from your sensor's datasheet
-  float conversionFactor = 0.5;  // Placeholder value, update based on datasheet
+// Fungsi untuk menghitung konsentrasi PM10
+float readPM10Concentration(int rawValue) {
+  // Konstanta kalibrasi PM10
+  const float A_PM10 = 10.0;
+  const float B_PM10 = 2.2;
+  const float C_PM10 = 100.0;
 
-  // Convert analog reading to voltage
-  float voltage = rawValue * 5.0 / 1023.0;
+  // Konversi ADC ke tegangan
+  float voltage = (rawValue / 4095.0) * 3.3;
 
-  // Calculate PM concentration
-  float concentration = voltage * conversionFactor;
+  // Periksa nilai ADC
+  if (voltage < 0.0 || voltage > 3.3) {
+    return -1.0; // Nilai ADC tidak valid
+  }
+
+  // Hitung rasio hamburan
+  float scatteringRatio = (voltage / 1.5) * 100.0;
+
+  // Hitung konsentrasi PM10
+  // Hitung konsentrasi PM10
+float concentration = (scatteringRatio - A_PM10) / B_PM10 * C_PM10;
 
   return concentration;
+}
 
+// Fungsi untuk menghitung konsentrasi PM2.5
+float readPM25Concentration(int rawValue) {
+  // Konstanta kalibrasi PM2.5
+  const float A_PM25 = 5.0;
+  const float B_PM25 = 2.5;
+  const float C_PM25 = 100.0;
+
+  // Konversi ADC ke tegangan
+  float voltage = (rawValue / 4095.0) * 3.3;
+
+  // Periksa nilai ADC
+  if (voltage < 0.0 || voltage > 3.3) {
+    return -1.0; // Nilai ADC tidak valid
+  }
+
+  // Hitung rasio hamburan
+  float scatteringRatio = (voltage / 1.5) * 100.0;
+
+  // Hitung konsentrasi PM2.5
+  float concentration = (scatteringRatio - A_PM25) / B_PM25 * C_PM25;
+
+  return concentration;
 }
 
 void setup_wifi() {
@@ -130,3 +177,4 @@ void reconnect() {
     }
   }
 }
+
