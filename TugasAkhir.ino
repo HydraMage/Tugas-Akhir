@@ -1,3 +1,5 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
@@ -7,34 +9,31 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// Pin untuk LED indikator nyala (success)
-const int ledSuccessPin = D4;
-
-
-const char* ssid = "KopiBang.id 2";
-const char* password = "bukajam8pagi";
+const char* ssid = "LANTJAR";
+const char* password = "seksekakulali";
 const char* mqtt_server = "test.mosquitto.org";
 
 const char* topicSensorData = "HydraMage/data";
 
 const float R0_NO2 = 76.63;
 const float m_NO2 = -0.42;
-const float b_NO2 = 37.97; 
+const float b_NO2 = 37.97;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Definisikan objek LCD
+
 int mqPin = A0;
 int pm10Pin = D5;
 int pm25Pin = D8;
+int ledSuccessPin = D7; // Deklarasi pin untuk LED indikator
 
 void setup() {
   Serial.begin(9600);
   dht.begin();
-
-  // Set pin mode untuk LED indikator
-  pinMode(ledSuccessPin, OUTPUT);
-
+  lcd.init(); // Inisialisasi LCD
+  lcd.backlight();
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
@@ -52,7 +51,7 @@ void loop() {
   int pm10Value = analogRead(pm10Pin);
   int pm25Value = analogRead(pm25Pin);
 
-  // Menampilkan hasil sensor secara ringkas di Serial Monitor
+  // Menampilkan hasil sensor di Serial Monitor
   Serial.print("Temp: ");
   Serial.print(temperature);
   Serial.print("°C, Hum: ");
@@ -60,17 +59,39 @@ void loop() {
   Serial.print("%, NO2: ");
   Serial.print(NO2Concentration);
   Serial.print(", PM10: ");
-  Serial.print(readPM10Concentration(pm10Value));
+  Serial.print(readPMConcentration(pm10Value, true)); // Memanggil fungsi untuk PM10
   Serial.print(", PM2.5: ");
-  Serial.println(readPM25Concentration(pm25Value));
+  Serial.println(readPMConcentration(pm25Value, false)); // Memanggil fungsi untuk PM2.5
+
+  // Menampilkan hasil sensor di LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.print(temperature);
+  lcd.print(" C");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Hum: ");
+  lcd.print(humidity);
+  lcd.print("%");
+
+  lcd.setCursor(9, 0);
+  lcd.print("PM10: ");
+  lcd.print(readPMConcentration(pm10Value, true));
+
+  lcd.setCursor(9, 1);
+  lcd.print("PM2.5: ");
+  lcd.print(readPMConcentration(pm25Value, false));
+
+  delay(2000);  // Delay untuk menampilkan data di LCD
 
   // Membuat objek DynamicJsonDocument
   DynamicJsonDocument sensorData(256);
   sensorData["temperature"] = temperature;
   sensorData["humidity"] = humidity;
   sensorData["air_quality"] = NO2Concentration;
-  sensorData["pm10"] = readPM10Concentration(pm10Value);
-  sensorData["pm25"] = readPM25Concentration(pm25Value);
+  sensorData["pm10"] = readPMConcentration(pm10Value, true);
+  sensorData["pm25"] = readPMConcentration(pm25Value, false);
 
   // Mengkonversi objek JSON menjadi string
   char jsonBuffer[256];
@@ -92,55 +113,16 @@ float readNO2Concentration() {
   float resistance = (1023.0 / rawValue) * 5.0 - 1.0;
   float NO2Concentration = (resistance - R0_NO2) / m_NO2 + b_NO2;
 
-
   return NO2Concentration;
 }
 
-// Fungsi untuk menghitung konsentrasi PM10
-float readPM10Concentration(int rawValue) {
-  // Konstanta kalibrasi PM10
-  const float A_PM10 = 10.0;
-  const float B_PM10 = 2.2;
-  const float C_PM10 = 100.0;
+float readPMConcentration(int rawValue, bool isPM10) {
+  float conversionFactorPM10 = 0.5; // Placeholder, replace with actual value from datasheet for PM10
+  float conversionFactorPM2_5 = 0.2; // Placeholder, replace with actual value from datasheet for PM2.5
+  float conversionFactor = isPM10 ? conversionFactorPM10 : conversionFactorPM2_5;
 
-  // Konversi ADC ke tegangan
-  float voltage = (rawValue / 4095.0) * 3.3;
-
-  // Periksa nilai ADC
-  if (voltage < 0.0 || voltage > 3.3) {
-    return -1.0; // Nilai ADC tidak valid
-  }
-
-  // Hitung rasio hamburan
-  float scatteringRatio = (voltage / 1.5) * 100.0;
-
-  // Hitung konsentrasi PM10
-  // Hitung konsentrasi PM10
-float concentration = (scatteringRatio - A_PM10) / B_PM10 * C_PM10;
-
-  return concentration;
-}
-
-// Fungsi untuk menghitung konsentrasi PM2.5
-float readPM25Concentration(int rawValue) {
-  // Konstanta kalibrasi PM2.5
-  const float A_PM25 = 5.0;
-  const float B_PM25 = 2.5;
-  const float C_PM25 = 100.0;
-
-  // Konversi ADC ke tegangan
-  float voltage = (rawValue / 4095.0) * 3.3;
-
-  // Periksa nilai ADC
-  if (voltage < 0.0 || voltage > 3.3) {
-    return -1.0; // Nilai ADC tidak valid
-  }
-
-  // Hitung rasio hamburan
-  float scatteringRatio = (voltage / 1.5) * 100.0;
-
-  // Hitung konsentrasi PM2.5
-  float concentration = (scatteringRatio - A_PM25) / B_PM25 * C_PM25;
+  float voltage = rawValue * 5.0 / 1023.0;
+  float concentration = voltage * conversionFactor;
 
   return concentration;
 }
@@ -177,4 +159,3 @@ void reconnect() {
     }
   }
 }
-
