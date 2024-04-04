@@ -1,5 +1,9 @@
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+Untuk menggunakan LCD tipe GME12864-19, Anda harus menggunakan library yang sesuai. Namun, library LiquidCrystal_I2C tidak cocok untuk LCD tersebut. Sebagai gantinya, Anda perlu menggunakan library yang mendukung LCD grafis seperti U8g2 atau Ucglib.
+
+Berikut adalah contoh kode yang menggunakan library U8g2 untuk mengatur LCD tipe GME12864-19:
+
+```cpp
+#include <U8g2lib.h>
 #include <DHT.h>
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
@@ -10,7 +14,7 @@
 DHT dht(DHTPIN, DHTTYPE);
 
 const char* ssid = "LANTJAR";
-const char* password = "seksekakulali";
+const char* password = "seksekakulalu";
 const char* mqtt_server = "test.mosquitto.org";
 
 const char* topicSensorData = "HydraMage/data";
@@ -22,18 +26,19 @@ const float b_NO2 = 37.97;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Definisikan objek LCD
+U8G2_ST7920_128X64_1_SW_SPI u8g2(U8G2_R0, /* clock=*/ D5, /* data=*/ D7, /* CS=*/ D8, /* reset=*/ U8X8_PIN_NONE); // Menggunakan SPI Software
 
 int mqPin = A0;
-int pm10Pin = D5;
-int pm25Pin = D8;
-int ledSuccessPin = D7; // Deklarasi pin untuk LED indikator
+int pm10Pin = D6;
+int pm25Pin = D1;
+int ledSuccessPin = D4; // Deklarasi pin untuk LED indikator
 
 void setup() {
   Serial.begin(9600);
   dht.begin();
-  lcd.init(); // Inisialisasi LCD
-  lcd.backlight();
+
+  u8g2.begin();
+  u8g2.setFont(u8g2_font_5x7_mf);
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
@@ -64,24 +69,26 @@ void loop() {
   Serial.println(readPMConcentration(pm25Value, false)); // Memanggil fungsi untuk PM2.5
 
   // Menampilkan hasil sensor di LCD
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Temp: ");
-  lcd.print(temperature);
-  lcd.print(" C");
-
-  lcd.setCursor(0, 1);
-  lcd.print("Hum: ");
-  lcd.print(humidity);
-  lcd.print("%");
-
-  lcd.setCursor(9, 0);
-  lcd.print("PM10: ");
-  lcd.print(readPMConcentration(pm10Value, true));
-
-  lcd.setCursor(9, 1);
-  lcd.print("PM2.5: ");
-  lcd.print(readPMConcentration(pm25Value, false));
+  u8g2.firstPage();
+  do {
+    u8g2.setCursor(0, 10);
+    u8g2.print("Temp: ");
+    u8g2.print(temperature);
+    u8g2.print(" C");
+    u8g2.setCursor(0, 20);
+    u8g2.print("Hum: ");
+    u8g2.print(humidity);
+    u8g2.print("%");
+    u8g2.setCursor(0, 30);
+    u8g2.print("NO2: ");
+    u8g2.print(NO2Concentration);
+    u8g2.setCursor(0, 40);
+    u8g2.print("PM10: ");
+    u8g2.print(readPMConcentration(pm10Value, true));
+    u8g2.setCursor(0, 50);
+    u8g2.print("PM2.5: ");
+    u8g2.print(readPMConcentration(pm25Value, false));
+  } while (u8g2.nextPage());
 
   delay(2000);  // Delay untuk menampilkan data di LCD
 
@@ -159,3 +166,6 @@ void reconnect() {
     }
   }
 }
+```
+
+Pastikan untuk mengubah pin-pinn yang sesuai dengan koneksi perangkat Anda. Selain itu, pastikan Anda telah menginstal library U8g2 di Arduino IDE Anda sebelum menggunakan kode ini.
