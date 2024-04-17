@@ -1,62 +1,82 @@
-Untuk menggunakan LCD tipe GME12864-19, Anda harus menggunakan library yang sesuai. Namun, library LiquidCrystal_I2C tidak cocok untuk LCD tersebut. Sebagai gantinya, Anda perlu menggunakan library yang mendukung LCD grafis seperti U8g2 atau Ucglib.
-
-Berikut adalah contoh kode yang menggunakan library U8g2 untuk mengatur LCD tipe GME12864-19:
-
-```cpp
 #include <U8g2lib.h>
 #include <DHT.h>
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
+#include <SSD1306Wire.h> // Or #include <SSD1306.h> depending on the library version
 
+// Define sensor pins
 #define DHTPIN D2
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char* ssid = "LANTJAR";
-const char* password = "seksekakulalu";
-const char* mqtt_server = "test.mosquitto.org";
+// Define WiFi credentials
+const char* ssid = "WAFI";
+const char* password = "jusjambu";
 
+// Define MQTT server details
+const char* mqtt_server = "test.mosquitto.org";
 const char* topicSensorData = "HydraMage/data";
 
+// Define calibration constants for NO2 sensor (replace with actual values)
 const float R0_NO2 = 76.63;
 const float m_NO2 = -0.42;
 const float b_NO2 = 37.97;
 
+// Initialize WiFi client and MQTT client objects
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-U8G2_ST7920_128X64_1_SW_SPI u8g2(U8G2_R0, /* clock=*/ D5, /* data=*/ D7, /* CS=*/ D8, /* reset=*/ U8X8_PIN_NONE); // Menggunakan SPI Software
+// Define display dimensions
+#define DISPLAY_WIDTH 128
+#define DISPLAY_HEIGHT 64
 
+// Create an SSD1306 display object, specifying I2C pins
+SSD1306Wire display(DISPLAY_WIDTH, DISPLAY_HEIGHT, D1, D2); // SCL, SDA pins
+
+// Define analog input pins for sensors
 int mqPin = A0;
 int pm10Pin = D6;
 int pm25Pin = D1;
-int ledSuccessPin = D4; // Deklarasi pin untuk LED indikator
+
+// Define LED pin for success indicator
+int ledSuccessPin = D4;
+
+// Variables for timing
+unsigned long previousMillis = 0;        // Variable to store the last time a message was published
+const long interval = 2000;              // Interval at which to publish sensor data (milliseconds)
 
 void setup() {
   Serial.begin(9600);
   dht.begin();
 
-  u8g2.begin();
-  u8g2.setFont(u8g2_font_5x7_mf);
+  // Initialize OLED display
+  display.init();
+  display.setFont(ArialMT_Tiny); // Set a suitable font
+  display.clearDisplay();
 
+  // Connect to WiFi network
   setup_wifi();
   client.setServer(mqtt_server, 1883);
 }
 
 void loop() {
+  unsigned long currentMillis = millis(); // Get the current time
+
+  // Check and reconnect to MQTT if necessary
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
 
+  // Read sensor data
   float humidity = dht.readHumidity();
   float temperature = dht.readTemperature();
   float NO2Concentration = readNO2Concentration();
   int pm10Value = analogRead(pm10Pin);
   int pm25Value = analogRead(pm25Pin);
 
-  // Menampilkan hasil sensor di Serial Monitor
+  // Print sensor data to Serial monitor for debugging
   Serial.print("Temp: ");
   Serial.print(temperature);
   Serial.print("°C, Hum: ");
@@ -64,35 +84,34 @@ void loop() {
   Serial.print("%, NO2: ");
   Serial.print(NO2Concentration);
   Serial.print(", PM10: ");
-  Serial.print(readPMConcentration(pm10Value, true)); // Memanggil fungsi untuk PM10
+  Serial.print(readPMConcentration(pm10Value, true));
   Serial.print(", PM2.5: ");
-  Serial.println(readPMConcentration(pm25Value, false)); // Memanggil fungsi untuk PM2.5
+  Serial.println(readPMConcentration(pm25Value, false));
 
-  // Menampilkan hasil sensor di LCD
-  u8g2.firstPage();
+  // Display sensor data on OLED
+  display.firstPage();
   do {
-    u8g2.setCursor(0, 10);
-    u8g2.print("Temp: ");
-    u8g2.print(temperature);
-    u8g2.print(" C");
-    u8g2.setCursor(0, 20);
-    u8g2.print("Hum: ");
-    u8g2.print(humidity);
-    u8g2.print("%");
-    u8g2.setCursor(0, 30);
-    u8g2.print("NO2: ");
-    u8g2.print(NO2Concentration);
-    u8g2.setCursor(0, 40);
-    u8g2.print("PM10: ");
-    u8g2.print(readPMConcentration(pm10Value, true));
-    u8g2.setCursor(0, 50);
-    u8g2.print("PM2.5: ");
-    u8g2.print(readPMConcentration(pm25Value, false));
-  } while (u8g2.nextPage());
+    display.setCursor(0, 10);
+    display.print("Temp: ");
+    display.print(temperature);
+    display.print(" C");
+    display.setCursor(0, 20);
+    display.print("Hum: ");
+    display.print(humidity);
+    display.print("%");
+    display.setCursor(0, 30);
+    display.print("NO2: ");
+    display.print(NO2Concentration);
+    display.setCursor(0, 40);
+    display.print("PM10: ");
+    display.print(readPMConcentration(pm10Value, true));
+    display.setCursor(0, 50);
+    display.print("PM2.5: ");
+    display.print(readPMConcentration(pm25Value, false));
+  } while (display.nextPage());
+  display.display();  // Send the buffer to the display
 
-  delay(2000);  // Delay untuk menampilkan data di LCD
-
-  // Membuat objek DynamicJsonDocument
+  // Create a JSON object for sensor data
   DynamicJsonDocument sensorData(256);
   sensorData["temperature"] = temperature;
   sensorData["humidity"] = humidity;
@@ -100,19 +119,23 @@ void loop() {
   sensorData["pm10"] = readPMConcentration(pm10Value, true);
   sensorData["pm25"] = readPMConcentration(pm25Value, false);
 
-  // Mengkonversi objek JSON menjadi string
+  // Convert JSON object to string
   char jsonBuffer[256];
   serializeJson(sensorData, jsonBuffer);
 
-  // Kirim data ke broker MQTT
+  // Publish data to MQTT broker
   client.publish(topicSensorData, jsonBuffer);
 
-  // Nyalakan LED indikator saat berhasil baca sensor
+  // Turn on LED indicator when sensor reading is successful
   digitalWrite(ledSuccessPin, HIGH);
   delay(1000);
   digitalWrite(ledSuccessPin, LOW);
 
-  delay(2000);
+  // Check if it's time to publish again
+  if (currentMillis - previousMillis >= interval) {
+    // Save the last time a message was published
+    previousMillis = currentMillis;
+  }
 }
 
 float readNO2Concentration() {
@@ -166,6 +189,3 @@ void reconnect() {
     }
   }
 }
-```
-
-Pastikan untuk mengubah pin-pinn yang sesuai dengan koneksi perangkat Anda. Selain itu, pastikan Anda telah menginstal library U8g2 di Arduino IDE Anda sebelum menggunakan kode ini.
